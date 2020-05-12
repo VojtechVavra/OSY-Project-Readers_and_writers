@@ -97,6 +97,7 @@ void * socketThread(void *arg)
 
     //while (1)
     //{
+    //If something happened on the master socket, else do again select socket on line 89
     // data from client?
     if (FD_ISSET(newSocket, &read_wait_set))
     {
