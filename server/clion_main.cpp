@@ -41,8 +41,8 @@
 #define SEM_MUTEX       "/sem_mutex"
 #define SEM_DB          "/sem_counter"
 
-sem_t *sem_mutex =      NULL;
-sem_t *sem_db =    NULL;
+sem_t *sem_mutex    = NULL;
+sem_t *sem_db       = NULL;
 
 // data for shared memory
 int *num_readers;
@@ -58,176 +58,203 @@ int *num_readers;
 // debug flag
 int debug = LOG_INFO;
 
+void closeThread(int socket, const char* msg)
+{
+    printf("%s", msg);
+    close(socket);
+    pthread_exit(NULL);
+}
 
-void * socketThread(void *arg)
+void* socketThread(void *arg)
 {
     int newSocket = *((int *)arg);    // sock_client
+    free(arg);
 
     Message msg;
-    printf("socket thread\n");
-    // print welcome to server for client
-    /*char buffer[] = "Welcome client onto server.\n";
-    char *p = buffer;
-    printf("[server] printing: Welcome to the client\n");
-    send(newSocket, p, strlen(p), 0);
-    */
+    printf("socket thread created\n");
+    int expected_message = 0;
 
-    //while (1)
-    //{ // communication
-    char buf[256];
-    // set for handles
-    fd_set read_wait_set;
-    // empty set
-    FD_ZERO(&read_wait_set);
-    // add stdin
-    FD_SET(STDIN_FILENO, &read_wait_set);
-    // add client
-    FD_SET(newSocket, &read_wait_set);
+    while (1)
+    { // communication
+        clientdata:
+        char buf[256];
 
-    //while (1)
-    //{
-    int sel = select(newSocket + 1, &read_wait_set, NULL, NULL, NULL);
-    if (sel < 0)
-    {
-        printf("Select failed!");
-        close(newSocket);
-        pthread_exit(NULL);
-        //exit(1);
-    }
-
-    //while (1)
-    //{
-    //If something happened on the master socket, else do again select socket on line 89
-    // data from client?
-    if (FD_ISSET(newSocket, &read_wait_set))
-    {
-        // read data from client socket
-        int l;
-
-        while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
+        while(1)
         {
-            if (!l)
-            {
-                printf("Server closed socket.");
-                close(newSocket);
-                pthread_exit(NULL);
-                break;
-            }
-            else if (l < 0)
-            {
-                printf("Unable to read data from server.");
-                close(newSocket);
-                pthread_exit(NULL);
-                break;
-            }
-            else if (l == INT_MAX)
-            {
-                printf("Waiting for next data.");
-            }
-            else
-            {
-                printf("Read %d bytes from server.", l);
+            printf(" [in loop]\n");
+            int l = 0;
 
-                break;
-            }
-        }
-
-        //int correctFormat = stringParser(buf, msg);
-        int check_format = stringParser(buf, msg);
-        if (!check_format)
-        {
-            printf("Format neni v korektnim stavu.\nUkoncuji spojeni.");
-            close(newSocket);
-            pthread_exit(NULL);
-        }
-
-        printf("Format je korektni.\n");
-        // write data to stdout
-        l = write(STDOUT_FILENO, buf, l);
-        if (l < 0)
-            printf("Unable to write data to stdout.\n");
-
-        // 1. prisel klient na cteni
-        if (msg.number == CI_PrichaziC && !strcmp(msg.text, CS_PrichaziC))
-        {
-            // kriticka sekce pro num_readers
-            //down(&sem_mutex);
-            if (sem_wait(sem_mutex) < 0)    // --down
+            // read data from client socket
+            while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
             {
-                printf("Unable to enter into critical section of sem_mutex!\n");
-                close(newSocket);
-                pthread_exit(NULL);
-            }
-
-            (*num_readers)++;   // dalsi ctenar
-            if(*num_readers == 1)
-            {
-                // 2. cekani na uvolneni knihovny
-                // az spisovatel odejde a uvolni se
-                //down (&sem_db);
-                if (sem_wait(sem_db) < 0)    // --down
+                if (!l)
                 {
-                    printf("Unable to enter into critical section of sem_db!\n");
-                    close(newSocket);
-                    pthread_exit(NULL);
+                    closeThread(newSocket, "Client closed socket.\n");
+                }
+                else if (l < 0)
+                {
+                    closeThread(newSocket, "Unable to read data from client.\n");
+                }
+                else if (l == INT_MAX)
+                {
+                    printf("Waiting for next data.\n");
+                }
+                else
+                {
+                    printf("Read %d bytes from client.\n", l);
+                    break;
                 }
             }
-            //up(&sem_mutex);     // konec kriticke sekce
-            // unlock critical section
-            if (sem_post(sem_mutex) < 0)    // ++up
+
+            if(l < 0) {
+                printf("goto clientdata");
+                continue;
+            }
+            if(!l)
             {
-                printf("Unable to unlock critical section of sem_mutex!\n");
-                close(newSocket);
-                pthread_exit(NULL);
+                closeThread(newSocket, "Client closed socket.\n");
             }
 
-            // 4. Muzes cist
-            send_message(newSocket, 'A', AI_Cti, AS_Cti);
+            int check_format = stringParser(buf, msg);
+            if (!check_format)
+            {
+                closeThread(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
+            }
 
-            // 5. Chci cist od X do Y
+            //printf(" Format je korektni.\n");
+            // write data to stdout
+            l = write(STDOUT_FILENO, buf, l);
+            if (l < 0)
+                printf("Unable to write data to stdout.\n");
 
 
+            // 11: Chci cist, nebo 12: Chci psat
+            if(expected_message == 0)
+            {
+                // 1. prisel klient na cteni
+                if (msg.number == CI_PrichaziC && !strcmp(msg.text, CS_PrichaziC))
+                {
+                    expected_message = CI_Cist;
+                    // TODO: sem pridat semafor, jestli nekdo nezapisuje do databaze
+                    // TODO: a cekat dokud neodejde
+
+                    // kriticka sekce pro num_readers
+                    if (sem_wait(sem_mutex) < 0)    // --down
+                    {
+                        closeThread(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                    }
+
+                    // dalsi ctenar
+                    if(++(*num_readers) == 1)
+                    {
+                        // zablokovani pristupu pro zapisovatele
+                        //down (&sem_db);
+                        if (sem_wait(sem_db) < 0)    // --down
+                        {
+                            closeThread(newSocket, "Unable to enter into critical section of sem_db!\n");
+                        }
+                    }
+                    // konec kriticke sekce pro num_readers
+                    if (sem_post(sem_mutex) < 0)    // ++up
+                    {
+                        closeThread(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                    }
+
+                    // 2. cekani na uvolneni knihovny
+                    sleep(3);
+
+                    // 3. return
+
+                    // 4. Muzes cist
+                    send_message(newSocket, 'A', AI_Cti, AS_Cti);
+                }
+                // 9. prisel klient na psani
+                else if (msg.number == CI_PrichaziS && !strcmp(msg.text, CS_PrichaziS))
+                {
+                    expected_message = CI_Psat;
+
+                    // 10. cekani na uvolneni knihovny pro psani
+                    sleep(3);
+
+                    // 11. return
+
+                    // 12. Muzes psat
+                    send_message(newSocket, 'A', AI_Pis, AS_Pis);
+                }
+            }
+            // 13: cti od X do Y
+            else if(expected_message == CI_Cist)
+            {
+                // 5. Chci cist od X do Y
+                if (msg.number == CI_Cist)
+                {
+                    expected_message = 55;
+                    // 6. Data
+                    send_message(newSocket, 'A', AI_Data, AS_Data);
+                }
+            }
+            // 14: chci psat
+            else if(expected_message == CI_Psat)
+            {
+                // 13. zapis DATA na X
+                if (msg.number == CI_Psat && !strncmp(msg.text, CS_Psat, strlen(CS_Psat)))
+                {
+                    expected_message = 56;
+                    // 13. Data prevzata a zapisuju je na X
+
+                    // 14. send hotovo
+                    send_message(newSocket, 'A', AI_Zapsano, AS_Zapsano);
+                }
+            }
+            // 15: Konec
+            else if(expected_message == 55 || expected_message == 56)
+            {
+                // 7. Konec ctenare
+                if(msg.number == CI_Konec && expected_message == 55)
+                {
+                    // 8. send naschledanou
+                    send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
+
+                    // kriticka sekce pro num_readers
+                    if (sem_wait(sem_mutex) < 0)    // --down mutex
+                    {
+                        closeThread(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                    }
+                    // ctenar odchazi
+                    if(--(*num_readers) == 0)
+                    {
+                        // odblokovani pristupu pro zapisovatele
+                        if (sem_post(sem_db) < 0)    // ++up db
+                        {
+                            closeThread(newSocket, "Unable to leave critical section of sem_db!\n");
+                        }
+                    }
+                    // konec kriticke sekce pro num_readers
+                    // unlock critical section for num_readers
+                    if (sem_post(sem_mutex) < 0)    // ++up mutex
+                    {
+                        closeThread(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                    }
+
+                    printf("Klient [ctenar] uspesne skoncil.\n");
+                    close(newSocket);
+                    return (void*)0;
+                }
+                // 7. Konec zapisovatele
+                else if(msg.number == CI_Konec && expected_message == 56)
+                {
+                    // 16. send naschledanou
+                    send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
+
+                    printf("Klient [zapisovatel] uspesne skoncil.\n");
+                    close(newSocket);
+                    return (void*)0;
+                }
+            }
         }
-        // prisel klient na psani
-        else if (msg.number == CI_PrichaziS && !strcmp(msg.text, CS_PrichaziS))
-        {
-            send_message(newSocket, 'A', AI_Pis, AS_Pis);
-        }
-        // close connection
-        else
-        {
-            printf("Close connection.");
-            close(newSocket);
-            pthread_exit(NULL);
-        }
-    }
-    // request for quit
-    if (!strncasecmp(buf, "quit", strlen(STR_QUIT)))
-    {
-        close(newSocket);
-        printf("Request to 'quit' entered");
-        pthread_exit(NULL);
-        //exit(0);
-    }
-
-    //} // while communication
-
-    /*recv(newSocket , client_message , 2000 , 0);
-    // Send message to the client socket
-    pthread_mutex_lock(&lock);
-    char *message = malloc(sizeof(client_message)+20);
-    strcpy(message,"Hello Client : ");
-    strcat(message,client_message);
-    strcat(message,"\n");
-    strcpy(buffer,message);
-    free(message);
-    pthread_mutex_unlock(&lock);
-    sleep(1);
-    send(newSocket,buffer,13,0);
-    printf("Exit socketThread \n");
-    close(newSocket);
-    pthread_exit(NULL);*/
+    } // while communication
 }
+
 
 void log_msg(int log_level, const char *form, ...)
 {
@@ -251,7 +278,6 @@ void log_msg(int log_level, const char *form, ...)
         case LOG_DEBUG:
             fprintf(stdout, out_fmt[log_level], buf);
             break;
-
         case LOG_ERROR:
             fprintf(stderr, out_fmt[log_level], errno, strerror(errno), buf);
             break;
@@ -260,7 +286,7 @@ void log_msg(int log_level, const char *form, ...)
 
 void clean(void)
 {
-    log_msg( LOG_INFO, "Final cleaning ..." );
+    log_msg( LOG_INFO, "Final cleaning shared memory ..." );
 
     if ( num_readers )
     {
@@ -273,10 +299,18 @@ void clean(void)
         shm_unlink( SHM_NAME );
     }
 }
-// catch signal
-void catch_sig( int sig )
+void clean2(void)
 {
-    exit( 1 );
+    log_msg( LOG_INFO, "Final cleaning semaphores ..." );
+
+    sem_unlink( SEM_MUTEX );
+    sem_unlink( SEM_DB );
+}
+
+// catch signal
+void catch_sig(int sig)
+{
+    exit(1);
 }
 
 //***************************************************************************
@@ -435,7 +469,8 @@ int main(int argc, char *argv[])
 
     // clean at exit
     atexit(clean);
-    //
+    atexit(clean2);
+    // exit clean
 
     log_msg(LOG_INFO, "Server will listen on port: %d.", port);
 
@@ -479,7 +514,9 @@ int main(int argc, char *argv[])
     // go!
     while ( 1 )
     {
-        int sock_client = -1;
+        int* sock_client = (int *)malloc(sizeof(int));
+        *sock_client = -1;
+
         pthread_t tid[60];
         int i = 0;
 
@@ -508,8 +545,8 @@ int main(int argc, char *argv[])
                 sockaddr_in rsa;
                 int rsa_size = sizeof( rsa );
                 // new connection
-                sock_client = accept( sock_listen, ( sockaddr * ) &rsa, ( socklen_t * ) &rsa_size );
-                if ( sock_client == -1 )
+                *sock_client = accept( sock_listen, ( sockaddr * ) &rsa, ( socklen_t * ) &rsa_size );
+                if ( *sock_client == -1 )
                 {
                     log_msg( LOG_ERROR, "Unable to accept new client." );
                     close( sock_listen );
@@ -518,122 +555,24 @@ int main(int argc, char *argv[])
 
                 //for each client request creates a thread and assign the client request to it to process
                 //so the main thread can entertain next request
-                if( pthread_create(&tid[i], NULL, socketThread, &sock_client) != 0 )
+                if( pthread_create(&tid[i], NULL, socketThread, sock_client) != 0 )
                     printf("Failed to create thread\n");
-                ////
+
                 i++;
 
                 uint lsa = sizeof( srv_addr );
                 // my IP
-                getsockname( sock_client, ( sockaddr * ) &srv_addr, &lsa );
+                getsockname( *sock_client, ( sockaddr * ) &srv_addr, &lsa );
                 log_msg( LOG_INFO, "My IP: '%s'  port: %d",
                          inet_ntoa( srv_addr.sin_addr ), ntohs( srv_addr.sin_port ) );
                 // client IP
-                getpeername( sock_client, ( sockaddr * ) &srv_addr, &lsa );
+                getpeername( *sock_client, ( sockaddr * ) &srv_addr, &lsa );
                 log_msg( LOG_INFO, "Client IP: '%s'  port: %d",
                          inet_ntoa( srv_addr.sin_addr ), ntohs( srv_addr.sin_port ) );
 
                 break;
             }
-            if ( FD_ISSET( STDIN_FILENO, &read_wait_set ) )
-            { // data on stdin
-                char buf[ 128 ];
-                int len = read( STDIN_FILENO, buf, sizeof( buf) );
-                if ( len < 0 )
-                {
-                    log_msg( LOG_DEBUG, "Unable to read from stdin!" );
-                    exit( 1 );
-                }
-
-                log_msg( LOG_DEBUG, "Read %d bytes from stdin" );
-                // request to quit?
-                if ( !strncmp( buf, STR_QUIT, strlen( STR_QUIT ) ) )
-                {
-                    log_msg( LOG_INFO, "Request to 'quit' entered.");
-                    close( sock_listen );
-                    exit( 0 );
-                }
-            }
         } // while wait for client
-
-        /*
-            while ( 1  )
-            { // communication
-                char buf[ 256 ];
-                // set for handles
-                fd_set read_wait_set;
-                // empty set
-                FD_ZERO( &read_wait_set );
-                // add stdin
-                FD_SET( STDIN_FILENO, &read_wait_set );
-                // add client
-                FD_SET( sock_client, &read_wait_set );
-
-                int sel = select( sock_client + 1, &read_wait_set, NULL, NULL, NULL );
-
-                if ( sel < 0 )
-                {
-                    log_msg( LOG_ERROR, "Select failed!" );
-                    exit( 1 );
-                }
-
-                // data on stdin?
-                if ( FD_ISSET( STDIN_FILENO, &read_wait_set ) )
-                {
-                    // read data from stdin
-                    int l = read( STDIN_FILENO, buf, sizeof( buf ) );
-                    if ( l < 0 )
-                            log_msg( LOG_ERROR, "Unable to read data from stdin." );
-                    else
-                            log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l );
-
-                    // send data to client
-                    l = write( sock_client, buf, l );
-                    if ( l < 0 )
-                            log_msg( LOG_ERROR, "Unable to send data to client." );
-                    else
-                            log_msg( LOG_DEBUG, "Sent %d bytes to client.", l );
-                }
-                // data from client?
-                else if ( FD_ISSET( sock_client, &read_wait_set ) )
-                {
-                    // read data from socket
-                    int l = read( sock_client, buf, sizeof( buf ) );
-                    if ( !l )
-                    {
-                            log_msg( LOG_DEBUG, "Client closed socket!" );
-                            close( sock_client );
-                            break;
-                    }
-                    else if ( l < 0 )
-                            log_msg( LOG_DEBUG, "Unable to read data from client." );
-                    else
-                            log_msg( LOG_DEBUG, "Read %d bytes from client.", l );
-
-                    // write data to client
-                    l = write( STDOUT_FILENO, buf, l );
-                    if ( l < 0 )
-                            log_msg( LOG_ERROR, "Unable to write data to stdout." );
-
-                    // close request?
-                    if ( !strncasecmp( buf, "close", strlen( STR_CLOSE ) ) )
-                    {
-                            log_msg( LOG_INFO, "Client sent 'close' request to close connection." );
-                            close( sock_client );
-                            log_msg( LOG_INFO, "Connection closed. Waiting for new client." );
-                            break;
-                    }
-                }
-                // request for quit
-                if ( !strncasecmp( buf, "quit", strlen( STR_QUIT ) ) )
-                {
-                    close( sock_listen );
-                    close( sock_client );
-                    log_msg( LOG_INFO, "Request to 'quit' entered" );
-                    exit( 0 );
-                }
-            } // while communication
-            */
     } // while ( 1 )
 
     return 0;
