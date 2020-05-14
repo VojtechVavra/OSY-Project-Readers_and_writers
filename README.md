@@ -3,7 +3,7 @@
 *14. 5. 2020*  
 
 **Zadání projektu:**  
-Projekt bude napsaný v programovacím jazyce C/C++ pod OS Unix. 
+Projekt bude napsaný v programovacím jazyce C/C++ pod OS Unix.  
 Implementace IPC problému: **čtenáři a spisovatelé**.  
   
 Navrhněte a realizujte program klient/server přes síťové rozhraní socket, kdy server povolí připojení více klientům a bude demonstrovat některý z klasických IPC problémů s využitím synchronizačních nástrojů OS. IPC problémy jsou v literatuře dobře popsány, včetně jejich řešení. Hlavní je tedy jejich vhodná implementace, ne hledání jiných problémů, nebo vlastních řešení!  
