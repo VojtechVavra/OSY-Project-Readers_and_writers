@@ -1,17 +1,6 @@
-//***************************************************************************
-//
-// Program example for labs in subject Operating Systems
-//
-// Petr Olivka, Dept. of Computer Science, petr.olivka@vsb.cz, 2017
-//
-// Example of socket server.
-//
-// This program is example of socket server and it allows to connect and serve
-// the only one client.
-// The mandatory argument of program is port number for listening.
-//
-//***************************************************************************
-
+/*
+ * Main file
+ */
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,16 +22,16 @@
 #include "stringParser.h"
 #include "../ctn_a_spis/shared/ctespis.h"
 
-#define STR_CLOSE   "close"
-#define STR_QUIT    "quit"
 
 #define SHM_NAME        "/shm_numreaders"
 
 #define SEM_MUTEX       "/sem_mutex"
-#define SEM_DB          "/sem_counter"
+#define SEM_DB          "/sem_db"
+#define SEM_WRITERS     "/sem_writers"
 
 sem_t *sem_mutex    = NULL;
 sem_t *sem_db       = NULL;
+sem_t *sem_writers  = NULL;
 
 // data for shared memory
 int *num_readers;
@@ -118,7 +107,9 @@ void* socketThread(void *arg)
             int check_format = stringParser(buf, msg);
             if (!check_format)
             {
-                closeThread(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
+                //closeThread(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
+                printf("Format neni v korektnim stavu.\n");
+                continue;
             }
 
             //printf(" Format je korektni.\n");
@@ -134,12 +125,21 @@ void* socketThread(void *arg)
                 // 1. prisel klient na cteni
                 if (msg.number == CI_PrichaziC && !strcmp(msg.text, CS_PrichaziC))
                 {
-                    expected_message = CI_Cist;
-                    // TODO: sem pridat semafor, jestli nekdo nezapisuje do databaze
-                    // TODO: a cekat dokud neodejde
+                    // semaphore if writers wait or already writing to the database, leave him alone
+                    if(sem_wait(sem_writers) < 0)   // --down semaphore
+                    {
+                        closeThread(newSocket, "Unable to enter into critical section of sem_writers!\n");
+                    }
+                    printf("after sem_wait in reader\n");
+                    // unlock back semaphore for readers and writers
+                    if(sem_post(sem_writers) < 0)   // ++up semaphore
+                    {
+                        closeThread(newSocket, "Unable to leave critical section of sem_writers!\n");
+                    }
 
+                    expected_message = CI_Cist;
                     // kriticka sekce pro num_readers
-                    if (sem_wait(sem_mutex) < 0)    // --down
+                    if (sem_wait(sem_mutex) < 0)    // --down semaphore
                     {
                         closeThread(newSocket, "Unable to enter into critical section of sem_mutex!\n");
                     }
@@ -161,7 +161,7 @@ void* socketThread(void *arg)
                     }
 
                     // 2. cekani na uvolneni knihovny
-                    sleep(3);
+                    sleep(6);
 
                     // 3. return
 
@@ -171,10 +171,21 @@ void* socketThread(void *arg)
                 // 9. prisel klient na psani
                 else if (msg.number == CI_PrichaziS && !strcmp(msg.text, CS_PrichaziS))
                 {
+                    // check semaphore if database is empty
+                    if(sem_wait(sem_writers) < 0)   // --down semaphore
+                    {
+                        closeThread(newSocket, "Unable to enter into critical section of sem_writers as writer!\n");
+                    }
+                    // bloknuti pristupu do databaze pro ostatni
+                    if (sem_wait(sem_db) < 0)    // --down db
+                    {
+                        closeThread(newSocket, "Unable to enter critical section of sem_db as writer!\n");
+                    }
+
                     expected_message = CI_Psat;
 
                     // 10. cekani na uvolneni knihovny pro psani
-                    sleep(3);
+                    sleep(1);
 
                     // 11. return
 
@@ -189,7 +200,7 @@ void* socketThread(void *arg)
                 if (msg.number == CI_Cist)
                 {
                     expected_message = 55;
-                    // 6. Data
+                    // 6. Data - zasilam data ke cteni
                     send_message(newSocket, 'A', AI_Data, AS_Data);
                 }
             }
@@ -197,10 +208,11 @@ void* socketThread(void *arg)
             else if(expected_message == CI_Psat)
             {
                 // 13. zapis DATA na X
-                if (msg.number == CI_Psat && !strncmp(msg.text, CS_Psat, strlen(CS_Psat)))
+                if (msg.number == CI_Psat)
                 {
                     expected_message = 56;
                     // 13. Data prevzata a zapisuju je na X
+                    sleep(5);
 
                     // 14. send hotovo
                     send_message(newSocket, 'A', AI_Zapsano, AS_Zapsano);
@@ -223,15 +235,15 @@ void* socketThread(void *arg)
                     // ctenar odchazi
                     if(--(*num_readers) == 0)
                     {
-                        // odblokovani pristupu pro zapisovatele
-                        if (sem_post(sem_db) < 0)    // ++up db
+                        // odblokovani pristupu do databaze pro zapisovatele
+                        if (sem_post(sem_db) < 0)    // ++up sem_db
                         {
                             closeThread(newSocket, "Unable to leave critical section of sem_db!\n");
                         }
                     }
                     // konec kriticke sekce pro num_readers
                     // unlock critical section for num_readers
-                    if (sem_post(sem_mutex) < 0)    // ++up mutex
+                    if (sem_post(sem_mutex) < 0)    // ++up sem_mutex
                     {
                         closeThread(newSocket, "Unable to unlock critical section of sem_mutex!\n");
                     }
@@ -245,6 +257,18 @@ void* socketThread(void *arg)
                 {
                     // 16. send naschledanou
                     send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
+
+                    // odblokovani pristupu do databaze pro ostatni
+                    if (sem_post(sem_db) < 0)    // ++up db
+                    {
+                        closeThread(newSocket, "Unable to leave critical section of sem_db as writer!\n");
+                    }
+
+                    // unlock back semaphore for readers and writers
+                    if(sem_post(sem_writers) < 0)   // ++up sem_writers
+                    {
+                        closeThread(newSocket, "Unable to leave critical section of sem_writers as writer!\n");
+                    }
 
                     printf("Klient [zapisovatel] uspesne skoncil.\n");
                     close(newSocket);
@@ -305,6 +329,7 @@ void clean2(void)
 
     sem_unlink( SEM_MUTEX );
     sem_unlink( SEM_DB );
+    sem_unlink( SEM_WRITERS );
 }
 
 // catch signal
@@ -347,9 +372,7 @@ void help(int argc, char **argv)
     }
     if (!strcmp(argv[1], "-rsem"))
     {
-        log_msg( LOG_INFO, "Clean semaphores." );
-        sem_unlink(SEM_MUTEX);
-        sem_unlink(SEM_DB);
+        clean2();
         exit(0);
     }
 }
@@ -449,6 +472,21 @@ int main(int argc, char *argv[])
             return 1;
         }
         log_msg(LOG_INFO, "Semaphore sem_db created.");
+    }
+    sem_writers = sem_open(SEM_WRITERS, O_RDWR);
+    if (!sem_writers)
+    {
+        // sem_writers semaphore probably not created yet
+        log_msg(LOG_ERROR, "Unable to open sem_writers semaphore. Create new one.");
+
+        // semaphores creation
+        sem_writers = sem_open(SEM_WRITERS, O_RDWR | O_CREAT, 0660, 1);
+        if (!sem_writers)
+        {
+            log_msg(LOG_ERROR, "Unable to create sem_writers!");
+            return 1;
+        }
+        log_msg(LOG_INFO, "Semaphore sem_writers created.");
     }
     // end of semaphore creation
 
