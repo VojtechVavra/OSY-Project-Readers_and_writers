@@ -1,6 +1,7 @@
 /*
     filename: stringParser.cpp
 */
+
 #include "stringParser.h"
 #include <stdio.h>
 #include <string.h>
@@ -10,7 +11,7 @@
 #include <limits.h>
 
 
-int stringParser(const char* line, Message& message)
+int stringParser(const char *line, Message &message)
 {
     int isCorrectFormat = 0;
     char command, oddelovac;
@@ -18,26 +19,28 @@ int stringParser(const char* line, Message& message)
     char text[253];
     int ret;
 
-    switch (line[0]){
-        case 'C':
-        case 'A':
-        case 'W':
-        case 'E':
-        case 'I':
-            isCorrectFormat = 1;
-            command = line[0];
-            message.command = command;
-            break;
-        default:
-            isCorrectFormat = 0;
-            return isCorrectFormat;
+    switch (line[0])
+    {
+    case 'C':
+    case 'A':
+    case 'W':
+    case 'E':
+    case 'I':
+        isCorrectFormat = 1;
+        command = line[0];
+        message.command = command;
+        break;
+    default:
+        isCorrectFormat = 0;
+        return isCorrectFormat;
     }
 
     // format CNN:TEXT\n a CNN:\n
     if (isdigit(line[1]) && isdigit(line[2]) && line[3] == ':')
     {
         memset(message.text, 0, sizeof(message.text));
-        
+        message.text[0] = '\0';
+
         if (isalpha(line[4]))
         {
             // format CNN:TEXT\n
@@ -47,7 +50,7 @@ int stringParser(const char* line, Message& message)
         ret = sscanf(line + 1, "%d", &number);
         message.number = number;
         message.delimiter = line[3];
-        printf("%c%d%c%s", command, message.number, oddelovac, text);
+        printf("%c%d%c%s", command, message.number, message.delimiter, message.text);
 
         isCorrectFormat = 1;
         return isCorrectFormat;
@@ -60,7 +63,7 @@ int stringParser(const char* line, Message& message)
             message.number = -1;
             message.delimiter = line[1];
             strncpy(message.text, text, strlen(text));
-            printf("%c%c%s", command, oddelovac, text);
+            printf("%c%c%s", command, message.delimiter, text);
             isCorrectFormat = 1;
             return isCorrectFormat;
         }
@@ -71,7 +74,7 @@ int stringParser(const char* line, Message& message)
         }
     }
     // format C:\n
-    else if(line[1] == ':' && line[2] == '\n')
+    else if (line[1] == ':' && line[2] == '\n')
     {
         printf("Prazdna zprava -> zahazuji ji\n");
         return 0;
@@ -83,7 +86,7 @@ int stringParser(const char* line, Message& message)
     }
 
     isCorrectFormat = 0;
-    return(isCorrectFormat);
+    return (isCorrectFormat);
 }
 
 int readline(int fd, char *buf, const unsigned int _len)
@@ -142,22 +145,21 @@ int readline(int fd, char *buf, const unsigned int _len)
             }
             else if (stored_buffer[i] == '\0') // nedokonceny radek, pockam na dalsi data
             {
-                // read data from socket
+                // read data from client socket
                 l = read(fd, read_sock, sizeof(read_sock));
                 if (l == 0)
                 {
-                    //log_msg(LOG_DEBUG, "Server closed socket.\nAle dozpracuju data, ktere mam z minuleho cteni");
-                    printf("Server closed socket.\nAle dozpracuju data, ktere mam z minuleho cteni\n");
+                    printf("Client closed socket.\nAle dozpracuju data, ktere mam z minuleho cteni\n");
                     return l;
                 }
                 else if (l < 0)
                 {
-                    printf("Unable to read from stdin.\nAle dozpracuju data, ktere mam z minuleho cteni");
+                    printf("Unable to read from stdin.\nAle dozpracuju data, ktere mam z minuleho cteni\n");
                     //return l;
                 }
                 else
                 {
-                    printf("Read %d bytes from stdin.", l);
+                    //printf("Read %d bytes from client socket.\n", l);
 
                     // data z nacetleho read_socku pridam k stored_bufferu
                     strncat(stored_buffer, read_sock, sizeof(read_sock));
@@ -168,24 +170,25 @@ int readline(int fd, char *buf, const unsigned int _len)
             }
         }
     }
-    else //predchozi data ve stored_bufferu zadna nejsou
+    //predchozi data ve stored_bufferu zadna nejsou
+    else
     {
-        // read data from socket
+        // read data from client socket
         l = read(fd, read_sock, sizeof(read_sock));
 
         if (l == 0)
         {
-            printf("Server closed socket.");
+            printf("Client closed socket.\n");
             return l;
         }
         else if (l < 0)
         {
-            printf("Unable to read from stdin.");
+            printf("Unable to read from client socket - in read line function.\n");
             return l;
         }
         else
         {
-            printf("Read %d bytes from stdin.", l);
+            //printf("Read %d bytes from client socket.\n", l);
         }
 
         for (int i = 0; i < strlen(read_sock) + 1; i++)
