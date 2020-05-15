@@ -1,18 +1,19 @@
 CXX=g++
-CXXFLAGS= -std=c++17 -Wall -Wextra -g -pthread
-CXXFLAGS2= -pedantic -Wall -Wextra -g -pthread
+CXXFLAGS= -std=c++17 -Wall -Wextra -g -pthread -lrt 
+#CXXFLAGS2= -Wall -Wextra -g -lrt 
 
-PROGRAM=threadedServer
-NAME1=threadedServer
-NAME2=../shared/stringParser
-STATICLIB1=../shared/libshared
+PROGRAM1=thread_server
+PROGRAM2=fork_server
 
-$(NAME1): $(NAME1).cpp
-	$(CXX) $(CXXFLAGS) $(NAME1).cpp $(STATICLIB1).a -o $(NAME1) 
+STATICLIB=../shared/sharedlib
 
+all: $(PROGRAM1) $(PROGRAM2)
 
-#threadedServer: ../shared/stringParser.cpp threadedServer.cpp
-	#g++ -o -pthread threadedServer threadedServer.cpp ../shared/stringParser.cpp
+$(PROGRAM1): $(PROGRAM1).cpp
+	$(CXX) $(PROGRAM1).cpp $(STATICLIB).a -o $(PROGRAM1) $(CXXFLAGS) 
+
+$(PROGRAM2): $(PROGRAM2).cpp
+	$(CXX) $(PROGRAM2).cpp $(STATICLIB).a -o $(PROGRAM2) $(CXXFLAGS) 
 
 clean:
-	rm -f $(NAME1)   # smaže binární soubor
+	rm -f $(PROGRAM1) $(PROGRAM2)  # smaže binární soubor
