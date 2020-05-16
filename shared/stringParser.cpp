@@ -50,7 +50,7 @@ int stringParser(const char *line, Message &message)
         ret = sscanf(line + 1, "%d", &number);
         message.number = number;
         message.delimiter = line[3];
-        printf("%c%d%c%s", command, message.number, message.delimiter, message.text);
+        printf("format CNN:TEXT = '%c%d%c%s'\n", command, message.number, message.delimiter, message.text);
 
         isCorrectFormat = 1;
         return isCorrectFormat;
@@ -63,7 +63,7 @@ int stringParser(const char *line, Message &message)
             message.number = -1;
             message.delimiter = line[1];
             strncpy(message.text, text, strlen(text));
-            printf("%c%c%s", command, message.delimiter, text);
+            printf("format C:TEXT = %c%c%s\n", command, message.delimiter, text);
             isCorrectFormat = 1;
             return isCorrectFormat;
         }
@@ -89,7 +89,7 @@ int stringParser(const char *line, Message &message)
     return (isCorrectFormat);
 }
 
-int readline(int fd, char *buf, const unsigned int _len)
+int readline(int fd, char *buf, const unsigned int _len, int empty_buffer)
 {
     static char stored_buffer[STORED_BUFFER_SIZE];
     static int data_continues_in_buffer = 0;
@@ -99,6 +99,14 @@ int readline(int fd, char *buf, const unsigned int _len)
     if (_len > BUFF_SIZE)
     {
         len_buf = _len;
+    }
+
+    // first fork process of thread will empty stored_buffer
+    if (empty_buffer == 1)
+    {
+        memset(stored_buffer, 0, sizeof(stored_buffer));
+        data_continues_in_buffer = 0;
+        return 1;
     }
 
     // buffer pro ulozeni/nacteni defaultne 256 znaku z file deskriptoru
@@ -121,10 +129,9 @@ int readline(int fd, char *buf, const unsigned int _len)
                 data_continues_in_buffer = 0;
 
                 // vracim pocet znaku na radku
-                //return i + 1;
                 return i;
             }
-            // radek je dokoncen, ale data za nim pokracuji
+            // radek je dokoncen, ale data za nim nadale pokracuji
             else if (stored_buffer[i] == '\n' && stored_buffer[i + 1] != '\0')
             {
                 // vynuluji vystupnio buffer
@@ -154,15 +161,14 @@ int readline(int fd, char *buf, const unsigned int _len)
                 }
                 else if (l < 0)
                 {
-                    printf("Unable to read from stdin.\nAle dozpracuju data, ktere mam z minuleho cteni\n");
+                    printf("Unable to read from socket.\nAle dozpracuju data, ktere mam z minuleho cteni\n");
                     //return l;
                 }
                 else
                 {
-                    //printf("Read %d bytes from client socket.\n", l);
-
                     // data z nacetleho read_socku pridam k stored_bufferu
                     strncat(stored_buffer, read_sock, sizeof(read_sock));
+                    //printf("Read %d bytes from client socket.\n", l);
                 }
 
                 data_continues_in_buffer = 1;
@@ -198,6 +204,7 @@ int readline(int fd, char *buf, const unsigned int _len)
             {
                 memset(buf, 0, len_buf);
                 strncpy(buf, read_sock, i);
+                data_continues_in_buffer = 0;
 
                 return i;
             }
