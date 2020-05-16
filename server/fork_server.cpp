@@ -28,14 +28,14 @@
 #include "../shared/ctespis.h"
 
 #define MAX_CLIENT_CONNECTION 60
-#define SHM_NAME "/shm_numreaders"
+#define SHM_NAME    "/shm_numreaders"
 
-#define SEM_MUTEX "/sem_mutex"
-#define SEM_DB "/sem_db"
+#define SEM_MUTEX   "/sem_mutex"
+#define SEM_DB      "/sem_db"
 #define SEM_WRITERS "/sem_writers"
 
-sem_t *sem_mutex = NULL;
-sem_t *sem_db = NULL;
+sem_t *sem_mutex =   NULL;
+sem_t *sem_db =      NULL;
 sem_t *sem_writers = NULL;
 
 // data for shared memory
@@ -44,9 +44,9 @@ int *num_readers;
 //***************************************************************************
 // log messages
 
-#define LOG_ERROR 0 // errors
-#define LOG_INFO 1  // information and notifications
-#define LOG_DEBUG 2 // debug messages
+#define LOG_ERROR 0  // errors
+#define LOG_INFO  1  // information and notifications
+#define LOG_DEBUG 2  // debug messages
 
 // debug flag
 int debug = LOG_INFO;
@@ -58,243 +58,252 @@ void closeClient(int socket, const char *msg)
     exit(-1);
 }
 
-void *socketFork(void *arg)
+void* socketFork(void *arg)
 {
     int newSocket = *((int *)arg); // sock_client
     free(arg);
 
     Message msg;
-    printf("socket fork created\n");
+    printf("fork socket created\n");
     int expected_message = 0;
 
-    //while (1)
-    //{ // communication
-        char buf[256];
+    char nothing[256] = {};
+    readline(newSocket, nothing, sizeof(nothing), 1);
 
-        while (1)
+    // communication
+    while (1)
+    {
+        char buf[256] = {0};
+        printf(" [in loop]\n");
+        int l = 0;
+
+        // read data from client socket
+        while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
         {
-            printf(" [in loop]\n");
-            int l = 0;
-
-            // read data from client socket
-            while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
-            {
-                if (!l)
-                {
-                    closeClient(newSocket, "Client closed socket.\n");
-                }
-                else if (l < 0)
-                {
-                    closeClient(newSocket, "Unable to read data from client.\n");
-                }
-                else if (l == INT_MAX)
-                {
-                    printf("Waiting for next data.\n");
-                }
-                else
-                {
-                    //printf("Read %d bytes from client.\n", l);
-                    break;
-                }
-            }
-
-            if (l < 0)
-            {
-                continue;
-            }
             if (!l)
             {
                 closeClient(newSocket, "Client closed socket.\n");
             }
-
-            int check_format = stringParser(buf, msg);
-            if (!check_format)
+            else if (l < 0)
             {
-                //closeClient(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
-                printf("Format neni v korektnim stavu.\n");
-                continue;
+                closeClient(newSocket, "Unable to read data from client.\n");
             }
-
-            //printf(" Format je korektni.\n");
-            // write data to stdout
-            l = write(STDOUT_FILENO, buf, l);
-            if (l < 0)
-                printf("Unable to write data to stdout.\n");
-
-            // 11: Chci cist, nebo 12: Chci psat
-            if (expected_message == 0)
+            else if (l == INT_MAX)
             {
-                // 1. prisel klient na cteni
-                if (msg.number == CI_PrichaziC && !strcmp(msg.text, CS_PrichaziC))
-                {
-                    // semaphore if writers wait or already writing to the database, leave him alone
-                    if (sem_wait(sem_writers) < 0) // --down semaphore
-                    {
-                        closeClient(newSocket, "Unable to enter into critical section of sem_writers!\n");
-                    }
-                    printf("after sem_wait in reader\n");
-                    // unlock back semaphore for readers and writers
-                    if (sem_post(sem_writers) < 0) // ++up semaphore
-                    {
-                        closeClient(newSocket, "Unable to leave critical section of sem_writers!\n");
-                    }
-
-                    expected_message = CI_Cist;
-                    // kriticka sekce pro num_readers
-                    if (sem_wait(sem_mutex) < 0) // --down semaphore
-                    {
-                        closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
-                    }
-
-                    // dalsi ctenar
-                    if (++(*num_readers) == 1)
-                    {
-                        // zablokovani pristupu pro zapisovatele
-                        //down (&sem_db);
-                        if (sem_wait(sem_db) < 0) // --down
-                        {
-                            closeClient(newSocket, "Unable to enter into critical section of sem_db!\n");
-                        }
-                    }
-                    // konec kriticke sekce pro num_readers
-                    if (sem_post(sem_mutex) < 0) // ++up
-                    {
-                        closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
-                    }
-
-                    // 2. cekani na uvolneni knihovny
-                    sleep(1);
-
-                    // 3. return
-
-                    // 4. Muzes cist
-                    send_message(newSocket, 'A', AI_Cti, AS_Cti);
-                }
-                // 9. prisel klient na psani
-                else if (msg.number == CI_PrichaziS && !strcmp(msg.text, CS_PrichaziS))
-                {
-                    // check semaphore if database is empty
-                    if (sem_wait(sem_writers) < 0) // --down semaphore
-                    {
-                        closeClient(newSocket, "Unable to enter into critical section of sem_writers as writer!\n");
-                    }
-                    // bloknuti pristupu do databaze pro ostatni
-                    if (sem_wait(sem_db) < 0) // --down db
-                    {
-                        closeClient(newSocket, "Unable to enter critical section of sem_db as writer!\n");
-                    }
-
-                    expected_message = CI_Psat;
-
-                    // 10. cekani na uvolneni knihovny pro psani
-                    sleep(1);
-
-                    // 11. return
-
-                    // 12. Muzes psat
-                    send_message(newSocket, 'A', AI_Pis, AS_Pis);
-                }
-                else
-                {
-                    continue;
-                }
-                
+                printf("Waiting for next data.\n");
             }
-            // 13: cti od X do Y
-            else if (expected_message == CI_Cist)
+            else
             {
-                // 5. Chci cist od X do Y
-                if (msg.number == CI_Cist)
-                {
-                    expected_message = 55;
-                    // 6. Data - zasilam data ke cteni
-                    send_message(newSocket, 'A', AI_Data, AS_Data);
-                }
-                else
-                {
-                    printf("\n\n\ncti od X do Y - BROKEN!!!\n\n\n");
-                    continue;
-                }
-            }
-            // 14: chci psat
-            else if (expected_message == CI_Psat)
-            {
-                // 13. zapis DATA na X
-                if (msg.number == CI_Psat)
-                {
-                    expected_message = 56;
-                    // 13. Data prevzata a zapisuju je na X
-                    sleep(5);
-
-                    // 14. send hotovo
-                    send_message(newSocket, 'A', AI_Zapsano, AS_Zapsano);
-                }
-                else
-                {
-                    continue;
-                }
-                
-            }
-            // 15: Konec
-            else if (expected_message == 55 || expected_message == 56)
-            {
-                // 7. Konec ctenare
-                if (msg.number == CI_Konec && expected_message == 55)
-                {
-                    // 8. send naschledanou
-                    send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
-
-                    // kriticka sekce pro num_readers
-                    if (sem_wait(sem_mutex) < 0) // --down mutex
-                    {
-                        closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
-                    }
-                    // ctenar odchazi
-                    if (--(*num_readers) == 0)
-                    {
-                        // odblokovani pristupu do databaze pro zapisovatele
-                        if (sem_post(sem_db) < 0) // ++up sem_db
-                        {
-                            closeClient(newSocket, "Unable to leave critical section of sem_db!\n");
-                        }
-                    }
-                    // konec kriticke sekce pro num_readers
-                    // unlock critical section for num_readers
-                    if (sem_post(sem_mutex) < 0) // ++up sem_mutex
-                    {
-                        closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
-                    }
-
-                    printf("Klient [ctenar] uspesne skoncil.\n");
-                    close(newSocket);
-                    return (void *)0;
-                }
-                // 7. Konec zapisovatele
-                else if (msg.number == CI_Konec && expected_message == 56)
-                {
-                    // 16. send naschledanou
-                    send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
-
-                    // odblokovani pristupu do databaze pro ostatni
-                    if (sem_post(sem_db) < 0) // ++up db
-                    {
-                        closeClient(newSocket, "Unable to leave critical section of sem_db as writer!\n");
-                    }
-
-                    // unlock back semaphore for readers and writers
-                    if (sem_post(sem_writers) < 0) // ++up sem_writers
-                    {
-                        closeClient(newSocket, "Unable to leave critical section of sem_writers as writer!\n");
-                    }
-
-                    printf("Klient [zapisovatel] uspesne skoncil.\n");
-                    close(newSocket);
-                    return (void *)0;
-                }
+                //printf("Read %d bytes from client.\n", l);
+                break;
             }
         }
-    //} // while communication
+
+        if (l == INT_MAX)
+        {
+            continue;
+        }
+        if (l < 0)
+        {
+            //continue;
+        }
+        if (!l)
+        {
+            //closeClient(newSocket, "Client closed socket.\n");
+        }
+
+        memset(&msg, 0, sizeof(msg));
+
+        int check_format = stringParser(buf, msg);
+        if (!check_format)
+        {
+            //closeClient(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
+            printf("Format neni v korektnim stavu.\n");
+            printf("%s\n", msg.text);
+            memset(buf, 0, sizeof(buf));
+            msg = {};
+            continue;
+        }
+
+        //printf(" Format je korektni.\n");
+
+        // write data to stdout
+        l = write(STDOUT_FILENO, buf, l);
+        if (l < 0)
+            printf("Unable to write data to stdout.\n");
+
+        // 11: Chci cist, nebo 12: Chci psat
+        if (expected_message == 0)
+        {
+            // 1. prisel klient na cteni
+            if (msg.number == CI_PrichaziC && !strcmp(msg.text, CS_PrichaziC))
+            {
+                // semaphore if writers wait or already writing to the database, leave him alone
+                if (sem_wait(sem_writers) < 0) // --down semaphore
+                {
+                    closeClient(newSocket, "Unable to enter into critical section of sem_writers!\n");
+                }
+                printf("after sem_wait in reader\n");
+                // unlock back semaphore for readers and writers
+                if (sem_post(sem_writers) < 0) // ++up semaphore
+                {
+                    closeClient(newSocket, "Unable to leave critical section of sem_writers!\n");
+                }
+
+                expected_message = CI_Cist;
+                // kriticka sekce pro num_readers
+                if (sem_wait(sem_mutex) < 0) // --down semaphore
+                {
+                    closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                }
+
+                // dalsi ctenar
+                if (++(*num_readers) == 1)
+                {
+                    // zablokovani pristupu pro zapisovatele
+                    //down (&sem_db);
+                    if (sem_wait(sem_db) < 0) // --down
+                    {
+                        closeClient(newSocket, "Unable to enter into critical section of sem_db!\n");
+                    }
+                }
+                // konec kriticke sekce pro num_readers
+                if (sem_post(sem_mutex) < 0) // ++up
+                {
+                    closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                }
+
+                // 2. cekani na uvolneni knihovny
+                //sleep(1);
+
+                // 3. return
+
+                // 4. Muzes cist
+                send_message(newSocket, 'A', AI_Cti, AS_Cti);
+            }
+            // 9. prisel klient na psani
+            else if (msg.number == CI_PrichaziS && !strcmp(msg.text, CS_PrichaziS))
+            {
+                // check semaphore if database is empty
+                if (sem_wait(sem_writers) < 0) // --down semaphore
+                {
+                    closeClient(newSocket, "Unable to enter into critical section of sem_writers as writer!\n");
+                }
+                // bloknuti pristupu do databaze pro ostatni
+                if (sem_wait(sem_db) < 0) // --down db
+                {
+                    closeClient(newSocket, "Unable to enter critical section of sem_db as writer!\n");
+                }
+
+                expected_message = CI_Psat;
+
+                // 10. cekani na uvolneni knihovny pro psani
+                //sleep(1);
+
+                // 11. return
+
+                // 12. Muzes psat
+                send_message(newSocket, 'A', AI_Pis, AS_Pis);
+            }
+            else
+            {
+                continue;
+            }
+        }
+        // 13: cti od X do Y
+        else if (expected_message == CI_Cist)
+        {
+            // 5. Chci cist od X do Y
+            if (msg.number == CI_Cist)
+            {
+                expected_message = 55;
+                // 6. Data - zasilam data ke cteni
+                send_message(newSocket, 'A', AI_Data, AS_Data);
+            }
+            else
+            {
+                printf("\n\n\ncti od X do Y - BROKEN!!!\n\n\n");
+                continue;
+            }
+        }
+        // 14: chci psat
+        else if (expected_message == CI_Psat)
+        {
+            // 13. zapis DATA na X
+            if (msg.number == CI_Psat)
+            {
+                expected_message = 56;
+                // 13. Data prevzata a zapisuju je na X
+                //sleep(5);
+
+                // 14. send hotovo
+                send_message(newSocket, 'A', AI_Zapsano, AS_Zapsano);
+            }
+            else
+            {
+                continue;
+            }
+        }
+        // 15: Konec
+        else if (expected_message == 55 || expected_message == 56)
+        {
+            // 7. Konec ctenare
+            if (msg.number == CI_Konec && expected_message == 55)
+            {
+                // 8. send naschledanou
+                send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
+
+                // kriticka sekce pro num_readers
+                if (sem_wait(sem_mutex) < 0) // --down mutex
+                {
+                    closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                }
+                // ctenar odchazi
+                if (--(*num_readers) == 0)
+                {
+                    // odblokovani pristupu do databaze pro zapisovatele
+                    if (sem_post(sem_db) < 0) // ++up sem_db
+                    {
+                        closeClient(newSocket, "Unable to leave critical section of sem_db!\n");
+                    }
+                }
+                // konec kriticke sekce pro num_readers
+                // unlock critical section for num_readers
+                if (sem_post(sem_mutex) < 0) // ++up sem_mutex
+                {
+                    closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                }
+
+                printf("Klient [ctenar] uspesne skoncil.\n");
+                close(newSocket);
+                return (void *)0;
+            }
+            // 7. Konec zapisovatele
+            else if (msg.number == CI_Konec && expected_message == 56)
+            {
+                // 16. send naschledanou
+                send_message(newSocket, 'A', AI_Nashledanou, AS_Nashledanou);
+
+                // odblokovani pristupu do databaze pro ostatni
+                if (sem_post(sem_db) < 0) // ++up db
+                {
+                    closeClient(newSocket, "Unable to leave critical section of sem_db as writer!\n");
+                }
+
+                // unlock back semaphore for readers and writers
+                if (sem_post(sem_writers) < 0) // ++up sem_writers
+                {
+                    closeClient(newSocket, "Unable to leave critical section of sem_writers as writer!\n");
+                }
+
+                printf("Klient [zapisovatel] uspesne skoncil.\n");
+                close(newSocket);
+                return (void *)0;
+            }
+        }
+    } // while communication
 }
+
 
 void log_msg(int log_level, const char *form, ...)
 {
