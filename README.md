@@ -27,4 +27,3 @@ Kde význam jednotlivých znaků je následující:
 ![GitHub Logo](/cten-spis.jpg)
 
 *zdroj: http://poli.cs.vsb.cz/edu/osy/poz-denni.html*  
-c _Thread_local vs c++(11) thread_local
