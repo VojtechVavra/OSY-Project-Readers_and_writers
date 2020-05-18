@@ -24,6 +24,6 @@ Kde význam jednotlivých znaků je následující:
     text - libovolný volitelný ASCII text s informacemi.
     \n - povinný oddělovač nového řádku označovaný jako LF - ASCII(10).  
       
-![GitHub Logo](/cten-spis.jpg)
+!(/cten-spis.jpg)
 
 *zdroj: http://poli.cs.vsb.cz/edu/osy/poz-denni.html*  
