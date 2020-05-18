@@ -1,6 +1,5 @@
 CXX=g++
 CXXFLAGS= -std=c++17 -Wall -Wextra -g -pthread -lrt 
-#CXXFLAGS2= -Wall -Wextra -g -lrt 
 
 PROGRAM1=thread_server
 PROGRAM2=fork_server

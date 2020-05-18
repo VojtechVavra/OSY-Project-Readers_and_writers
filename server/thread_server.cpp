@@ -1,10 +1,20 @@
+//***************************************************************************
 //
-// Created by vooja on 14.05.20.
+// Program example for labs in subject Operating Systems
 //
-
+// Petr Olivka, Dept. of Computer Science, petr.olivka@vsb.cz, 2017
+//
+// Example of socket server.
+//
+// This program is example of socket server and it allows to connect and serve
+// the only one client.
+// The mandatory argument of program is port number for listening.
+//
+//***************************************************************************
 /*
- * Main file
- */
+* Main file threadedServer.cpp
+*/
+
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,15 +29,15 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
-//#include <pthread.h>
-#include <sys/mman.h> // shared memory
+#include <pthread.h>
+#include <sys/mman.h>       // shared memory
 #include <semaphore.h>
-#include <sys/wait.h>
+
 
 #include "../shared/stringParser.h"
 #include "../shared/ctespis.h"
 
-#define MAX_CLIENT_CONNECTION 60
+
 #define SHM_NAME    "/shm_numreaders"
 
 #define SEM_MUTEX   "/sem_mutex"
@@ -41,9 +51,6 @@ sem_t *sem_writers = NULL;
 // data for shared memory
 int *num_readers;
 
-// final clean only as parent
-int parentProcess = 0;
-
 //***************************************************************************
 // log messages
 
@@ -54,20 +61,20 @@ int parentProcess = 0;
 // debug flag
 int debug = LOG_INFO;
 
-void closeClient(int socket, const char *msg)
+void closeThread(int socket, const char *msg)
 {
     printf("%s", msg);
     close(socket);
-    exit(-1);
+    pthread_exit(NULL);
 }
 
-void* socketFork(void *arg)
+void* socketThread(void *arg)
 {
     int newSocket = *((int *)arg);     // sock_client
     free(arg);
 
     Message msg;
-    printf("fork socket created\n");
+    printf("thread socket created\n");
     int expected_message = 0;
 
     char nothing[256] = {};
@@ -79,17 +86,17 @@ void* socketFork(void *arg)
         char buf[256] = {0};
         int l = 0;
         //printf(" [in loop]\n");
-        
+
         // read data from client socket
         while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
         {
             if (!l)
             {
-                closeClient(newSocket, "Client closed socket.\n");
+                closeThread(newSocket, "Client closed socket.\n");
             }
             else if (l < 0)
             {
-                closeClient(newSocket, "Unable to read data from client.\n");
+                closeThread(newSocket, "Unable to read data from client.\n");
             }
             else if (l == INT_MAX)
             {
@@ -112,7 +119,7 @@ void* socketFork(void *arg)
         }
         if (!l)
         {
-            //closeClient(newSocket, "Client closed socket.\n");
+            //closeThread(newSocket, "Client closed socket.\n");
         }
 
         memset(&msg, 0, sizeof(msg));
@@ -121,7 +128,7 @@ void* socketFork(void *arg)
         int check_format = stringParser(buf, msg);
         if (!check_format)
         {
-            //closeClient(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
+            //closeThread(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
             printf("Format neni v korektnim stavu.\n");
             printf("%s\n", msg.text);
             memset(buf, 0, sizeof(buf));
@@ -143,20 +150,20 @@ void* socketFork(void *arg)
                 // semaphore if writers wait or already writing to the database, leave him alone
                 if (sem_wait(sem_writers) < 0) // --down semaphore
                 {
-                    closeClient(newSocket, "Unable to enter into critical section of sem_writers!\n");
+                    closeThread(newSocket, "Unable to enter into critical section of sem_writers!\n");
                 }
 
                 // unlock back semaphore for readers and writers
                 if (sem_post(sem_writers) < 0) // ++up semaphore
                 {
-                    closeClient(newSocket, "Unable to leave critical section of sem_writers!\n");
+                    closeThread(newSocket, "Unable to leave critical section of sem_writers!\n");
                 }
 
                 expected_message = CI_Cist;
                 // kriticka sekce pro num_readers
                 if (sem_wait(sem_mutex) < 0) // --down semaphore
                 {
-                    closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                    closeThread(newSocket, "Unable to enter into critical section of sem_mutex!\n");
                 }
 
                 // dalsi ctenar
@@ -165,13 +172,13 @@ void* socketFork(void *arg)
                     // zablokovani pristupu pro zapisovatele
                     if (sem_wait(sem_db) < 0) // --down
                     {
-                        closeClient(newSocket, "Unable to enter into critical section of sem_db!\n");
+                        closeThread(newSocket, "Unable to enter into critical section of sem_db!\n");
                     }
                 }
                 // konec kriticke sekce pro num_readers
                 if (sem_post(sem_mutex) < 0) // ++up
                 {
-                    closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                    closeThread(newSocket, "Unable to unlock critical section of sem_mutex!\n");
                 }
 
                 // 2. cekani na uvolneni knihovny
@@ -188,12 +195,12 @@ void* socketFork(void *arg)
                 // check semaphore if database is empty
                 if (sem_wait(sem_writers) < 0) // --down semaphore
                 {
-                    closeClient(newSocket, "Unable to enter into critical section of sem_writers as writer!\n");
+                    closeThread(newSocket, "Unable to enter into critical section of sem_writers as writer!\n");
                 }
                 // bloknuti pristupu do databaze pro ostatni
                 if (sem_wait(sem_db) < 0) // --down db
                 {
-                    closeClient(newSocket, "Unable to enter critical section of sem_db as writer!\n");
+                    closeThread(newSocket, "Unable to enter critical section of sem_db as writer!\n");
                 }
 
                 expected_message = CI_Psat;
@@ -258,7 +265,7 @@ void* socketFork(void *arg)
                 // kriticka sekce pro num_readers
                 if (sem_wait(sem_mutex) < 0) // --down mutex
                 {
-                    closeClient(newSocket, "Unable to enter into critical section of sem_mutex!\n");
+                    closeThread(newSocket, "Unable to enter into critical section of sem_mutex!\n");
                 }
                 // ctenar odchazi
                 if (--(*num_readers) == 0)
@@ -266,14 +273,14 @@ void* socketFork(void *arg)
                     // odblokovani pristupu do databaze pro zapisovatele
                     if (sem_post(sem_db) < 0) // ++up sem_db
                     {
-                        closeClient(newSocket, "Unable to leave critical section of sem_db!\n");
+                        closeThread(newSocket, "Unable to leave critical section of sem_db!\n");
                     }
                 }
                 // konec kriticke sekce pro num_readers
                 // unlock critical section for num_readers
                 if (sem_post(sem_mutex) < 0) // ++up sem_mutex
                 {
-                    closeClient(newSocket, "Unable to unlock critical section of sem_mutex!\n");
+                    closeThread(newSocket, "Unable to unlock critical section of sem_mutex!\n");
                 }
 
                 printf("Klient [ctenar] uspesne skoncil.\n");
@@ -290,24 +297,22 @@ void* socketFork(void *arg)
                 // odblokovani pristupu do databaze pro ostatni
                 if (sem_post(sem_db) < 0) // ++up db
                 {
-                    closeClient(newSocket, "Unable to leave critical section of sem_db as writer!\n");
+                    closeThread(newSocket, "Unable to leave critical section of sem_db as writer!\n");
                 }
 
                 // unlock back semaphore for readers and writers
                 if (sem_post(sem_writers) < 0) // ++up sem_writers
                 {
-                    closeClient(newSocket, "Unable to leave critical section of sem_writers as writer!\n");
+                    closeThread(newSocket, "Unable to leave critical section of sem_writers as writer!\n");
                 }
 
                 printf("Klient [zapisovatel] uspesne skoncil.\n");
-
                 close(newSocket);
                 return (void *)0;
             }
         }
     } // while communication
 }
-
 
 void log_msg(int log_level, const char *form, ...)
 {
@@ -339,9 +344,6 @@ void log_msg(int log_level, const char *form, ...)
 
 void clean(void)
 {
-    if ( !parentProcess )
-        return;
-
     log_msg(LOG_INFO, "Final cleaning shared memory ...");
 
     if (num_readers)
@@ -357,9 +359,6 @@ void clean(void)
 }
 void clean2(void)
 {
-    if (!parentProcess)
-        return;
-
     log_msg(LOG_INFO, "Final cleaning semaphores ...");
 
     sem_unlink(SEM_MUTEX);
@@ -409,7 +408,6 @@ void help(int argc, char **argv)
     }
     if (!strcmp(argv[1], "-rsem"))
     {
-        parentProcess = 1;
         clean2();
         exit(0);
     }
@@ -527,7 +525,6 @@ int main(int argc, char *argv[])
     }
     // end of semaphore creation
 
-    
     // cleaning at exit - catch signal
     struct sigaction sa;
     bzero(&sa, sizeof(sa));
@@ -546,8 +543,6 @@ int main(int argc, char *argv[])
     atexit(clean);
     atexit(clean2);
     // exit clean
-    
-
 
     log_msg(LOG_INFO, "Server will listen on port: %d.", port);
 
@@ -556,7 +551,6 @@ int main(int argc, char *argv[])
     if (sock_listen == -1)
     {
         log_msg(LOG_ERROR, "Unable to create socket.");
-        parentProcess = 1;
         exit(1);
     }
 
@@ -576,7 +570,6 @@ int main(int argc, char *argv[])
     {
         log_msg(LOG_ERROR, "Bind failed!");
         close(sock_listen);
-        parentProcess = 1;
         exit(1);
     }
 
@@ -585,7 +578,6 @@ int main(int argc, char *argv[])
     {
         log_msg(LOG_ERROR, "Unable to listen on given port!");
         close(sock_listen);
-        parentProcess = 1;
         exit(1);
     }
 
@@ -595,8 +587,9 @@ int main(int argc, char *argv[])
     while (1)
     {
         int *sock_client;
-        
-        int i = 0;
+        pthread_t tid;
+        //pthread_t tid[100];
+        //int i = 0;
 
         while (1) // wait for new client
         {
@@ -614,7 +607,6 @@ int main(int argc, char *argv[])
             if (sel < 0)
             {
                 log_msg(LOG_ERROR, "Select failed!");
-                parentProcess = 1;
                 exit(1);
             }
 
@@ -633,42 +625,26 @@ int main(int argc, char *argv[])
                     log_msg(LOG_ERROR, "Unable to accept new client.");
                     free(sock_client);
                     close(sock_listen);
-                    parentProcess = 1;
                     exit(1);
                 }
 
-                //for each client request creates a fork process and assign the client request to it to process
+                //for each client request creates a thread and assign the client request to it to process
                 //so the main thread can entertain next request
-                if (fork() == 0)
-                    socketFork(sock_client);
-                else
-                {
-                    parentProcess = 1;
-                    i++;
+                if (pthread_create(&tid, NULL, socketThread, sock_client) != 0)
+                    printf("Failed to create thread\n");
+                
 
-                    uint lsa = sizeof(srv_addr);
-                    // my IP
-                    getsockname(*sock_client, (sockaddr *)&srv_addr, &lsa);
-                    log_msg(LOG_INFO, "My IP: '%s'  port: %d",
-                            inet_ntoa(srv_addr.sin_addr), ntohs(srv_addr.sin_port));
-                    // client IP
-                    getpeername(*sock_client, (sockaddr *)&srv_addr, &lsa);
-                    log_msg(LOG_INFO, "Client IP: '%s'  port: %d",
-                            inet_ntoa(srv_addr.sin_addr), ntohs(srv_addr.sin_port));
+                uint lsa = sizeof(srv_addr);
+                // my IP
+                getsockname(*sock_client, (sockaddr *)&srv_addr, &lsa);
+                log_msg(LOG_INFO, "My IP: '%s'  port: %d",
+                        inet_ntoa(srv_addr.sin_addr), ntohs(srv_addr.sin_port));
+                // client IP
+                getpeername(*sock_client, (sockaddr *)&srv_addr, &lsa);
+                log_msg(LOG_INFO, "Client IP: '%s'  port: %d",
+                        inet_ntoa(srv_addr.sin_addr), ntohs(srv_addr.sin_port));
 
-                    /*if (MAX_CLIENT_CONNECTION == i)
-                    {
-                        wait(NULL);
-                        --i;
-                        break;
-                    }
-                    else
-                    {
-                        break;
-                    }*/
-                    
-                    break;
-                }
+                break;
             }
         } // while wait for client
     } // while ( 1 )
