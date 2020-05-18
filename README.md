@@ -27,3 +27,5 @@ Kde význam jednotlivých znaků je následující:
 ![cten-spis](/cten-spis.jpg)
 
 *zdroj: http://poli.cs.vsb.cz/edu/osy/poz-denni.html*  
+
+https://stackoverflow.com/questions/1711990/what-is-this-weird-colon-member-syntax-in-the-constructor/8523361#8523361
