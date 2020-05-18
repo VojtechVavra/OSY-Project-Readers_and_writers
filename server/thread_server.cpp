@@ -33,10 +33,9 @@
 #include <sys/mman.h>       // shared memory
 #include <semaphore.h>
 
-
 #include "../shared/stringParser.h"
+#include "../shared/ReadLine.h"
 #include "../shared/ctespis.h"
-
 
 #define SHM_NAME    "/shm_numreaders"
 
@@ -77,18 +76,21 @@ void* socketThread(void *arg)
     printf("thread socket created\n");
     int expected_message = 0;
 
-    char nothing[256] = {};
-    readline(newSocket, nothing, sizeof(nothing), 1);
+    //char buf[256] = {0};
+    ReadLine readLine(newSocket, BUFF_SIZE);
+
+    //char nothing[256] = {};
+    //readline(newSocket, nothing, sizeof(nothing), 1);
 
     // communication
     while (1)
     {
-        char buf[256] = {0};
+        readLine.emptyBuffer();
         int l = 0;
         //printf(" [in loop]\n");
 
         // read data from client socket
-        while ((l = readline(newSocket, buf, sizeof(buf))) > 0)
+        while ((l = readLine.buffRead()) > 0)
         {
             if (!l)
             {
@@ -125,19 +127,19 @@ void* socketThread(void *arg)
         memset(&msg, 0, sizeof(msg));
 
         // Check message format
-        int check_format = stringParser(buf, msg);
+        int check_format = stringParser(readLine.getBuffer(), msg);
         if (!check_format)
         {
             //closeThread(newSocket, "Format neni v korektnim stavu.\nUkoncuji spojeni.\n");
             printf("Format neni v korektnim stavu.\n");
             printf("%s\n", msg.text);
-            memset(buf, 0, sizeof(buf));
+            readLine.emptyBuffer();
             msg = {};
             continue;
         }
 
         // write data to stdout
-        l = write(STDOUT_FILENO, buf, l);
+        l = write(STDOUT_FILENO, readLine.getBuffer(), l);
         if (l < 0)
             printf("Unable to write data to stdout.\n");
 
