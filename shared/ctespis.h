@@ -18,6 +18,8 @@
 #define CS_Psat         "Zapis data na %d"
 #define CI_Konec        15
 #define CS_Konec        "Konec"
+#define CI_KONEC_CTENAR     55
+#define CI_KONEC_SPISOVATEL 56
 
 // Odpovedi protokolu
 #define AI_Cti          21

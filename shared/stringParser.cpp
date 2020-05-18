@@ -91,8 +91,9 @@ int stringParser(const char *line, Message &message)
 
 int readline(int fd, char *buf, const unsigned int _len, int empty_buffer)
 {
-    static char stored_buffer[STORED_BUFFER_SIZE];
-    static int data_continues_in_buffer = 0;
+    // make static variables local for one thread
+    static __thread char stored_buffer[STORED_BUFFER_SIZE]; // same as thread_local
+    static thread_local int data_continues_in_buffer = 0;   // (since C++11) same meaning as __thread
     int l = -1;
     unsigned int len_buf = BUFF_SIZE;
 

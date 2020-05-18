@@ -1,4 +1,3 @@
-
 all: compile archive
 
 PROGRAM1=messages
