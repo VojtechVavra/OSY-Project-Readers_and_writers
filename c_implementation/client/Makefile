@@ -5,18 +5,18 @@ ifndef $(VER)
   endif
 endif
 
-TARGETS=holic_cl filozof_cl ctespis_cl
+TARGETS=ctespis_cl #holic_cl filozof_cl
 
 all: precomp $(TARGETS)
 
 -include Makefile2
 precomp: $(PRECOMP)
 
-holic_cl: holic_cl.cpp msg_io.cpp protocol.o$(VER)
-	g++ $^ -o $@
+#holic_cl: holic_cl.cpp msg_io.cpp protocol.o$(VER)
+#	g++ $^ -o $@
 
-filozof_cl: filozof_cl.cpp msg_io.cpp protocol.o$(VER)
-	g++ $^ -o $@
+#filozof_cl: filozof_cl.cpp msg_io.cpp protocol.o$(VER)
+#	g++ $^ -o $@
 
 ctespis_cl: ctespis_cl.cpp msg_io.cpp protocol.o$(VER)
 	g++ $^ -o $@
